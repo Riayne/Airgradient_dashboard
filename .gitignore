@@ -1,0 +1,26 @@
+# Secrets: the real API token and monitor location IDs live here only.
+.env
+.env.*
+!.env.example
+
+# Local database (collected readings) and any other data files.
+data/
+*.sqlite
+*.sqlite-*
+*.db
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Editor / tool settings
+.claude/
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
