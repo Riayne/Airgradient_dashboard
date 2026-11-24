@@ -51,8 +51,47 @@ python app.py
 
 and open http://localhost:8050.
 
-## Keeping secrets out of git
+## How the API key is protected
 
-`.env` (API token and monitor IDs) and `data/` (the database) are listed in
-`.gitignore` and are never committed. Only `.env.example`, with placeholder
-values, is in the repository.
+- **Server-side only.** The AirGradient token is read from the server's
+  environment (`AIRGRADIENT_API_TOKEN`) by `app.py`, and only Python code on
+  the server calls the AirGradient API. The browser never talks to
+  AirGradient: it calls this app's own Dash callback endpoint
+  (`/_dash-update-component`), which reads from the local database.
+- **Nothing secret is sent to the browser.** The page, its layout and all
+  callback responses contain neither the token nor the monitors' location
+  IDs. The browser refers to monitors by neutral keys (`m1`, `m2`, …) that
+  the server maps back to IDs.
+- **Not in logs.** AirGradient only accepts the token as a `?token=` URL
+  parameter, so error messages are reduced to the error type / HTTP status
+  and the HTTP library's URL logging is switched off.
+- **Not in git.** `.env` and `data/` are in `.gitignore`. Only
+  `.env.example`, with placeholder values, is committed. Never put the real
+  token in code, the README or any `NEXT_PUBLIC_*` / `VITE_*`-style public
+  variable.
+- **If the token leaks** (screenshot, chat, commit): create a new one in the
+  AirGradient dashboard and update `.env` / your host's settings. Deleting a
+  committed file does not remove it from git history.
+
+## Deploying to a host
+
+Do not upload `.env`. Set the same variables in the host's
+environment-variable settings instead (e.g. Render → *Environment*,
+Railway → *Variables*, Azure App Service → *Configuration*):
+
+| Variable | Secret? |
+|---|---|
+| `AIRGRADIENT_API_TOKEN` | **yes** |
+| `MONITOR_IDS` | yes (keep private) |
+| `HISTORY_START`, `REFRESH_SECONDS`, `DISPLAY_UTC_OFFSET_HOURS`, `DISPLAY_TZ_LABEL`, `DATABASE_PATH` | no |
+
+Start command (Linux hosts):
+
+```bash
+gunicorn app:server --workers 1 --threads 8 --bind 0.0.0.0:$PORT
+```
+
+- Use **one worker**: each worker starts its own background collector.
+- Point `DATABASE_PATH` at a **persistent disk** (for example
+  `/var/data/airgradient.sqlite`); many hosts wipe the normal file system on
+  every deploy, which would make the app re-download all history.

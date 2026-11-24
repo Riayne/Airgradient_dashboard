@@ -38,6 +38,10 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(message)s",
 )
 log = logging.getLogger("airgradient")
+# AirGradient only accepts the token as a ?token= URL parameter. Requests
+# go server-to-server over HTTPS; keep the HTTP library from ever logging
+# those URLs, even if someone turns on debug logging.
+logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 API_BASE = os.getenv(
     "AIRGRADIENT_BASE_URL",
@@ -58,6 +62,18 @@ if not MONITOR_IDS:
         "MONITOR_IDS is not set. Copy .env.example to .env and fill in "
         "your AirGradient location IDs."
     )
+
+# The browser only ever sees these neutral keys (m1, m2, ...), never the
+# real location IDs; the server translates them back.
+PUBLIC_KEY = {m: f"m{i + 1}" for i, m in enumerate(MONITOR_IDS)}
+FROM_PUBLIC_KEY = {k: m for m, k in PUBLIC_KEY.items()}
+
+
+def ids_from_keys(keys):
+    """Selected checklist keys -> location IDs, in display order."""
+    chosen = {FROM_PUBLIC_KEY[k] for k in (keys or [])
+              if k in FROM_PUBLIC_KEY}
+    return [m for m in MONITOR_IDS if m in chosen]
 
 REFRESH_SECONDS = int(os.getenv("REFRESH_SECONDS", "60"))
 
@@ -420,7 +436,7 @@ def start_workers():
 # ============================================================
 
 def monitor_names():
-    names = {m: f"Monitor {m}" for m in MONITOR_IDS}
+    names = {m: f"Monitor {i + 1}" for i, m in enumerate(MONITOR_IDS)}
     df = query("SELECT location_id, name FROM monitors")
     for location_id, name in df.itertuples(index=False):
         if int(location_id) in names and name:
@@ -920,7 +936,7 @@ def monitor_options(names):
             html.Span(className="swatch", style={"background": COLOR[m]}),
             names[m],
         ], className="check-label"),
-        "value": m,
+        "value": PUBLIC_KEY[m],
     } for m in MONITOR_IDS]
 
 
@@ -965,7 +981,7 @@ def serve_layout():
                 dcc.Checklist(
                     id="monitors",
                     options=monitor_options(names),
-                    value=list(MONITOR_IDS),
+                    value=[PUBLIC_KEY[m] for m in MONITOR_IDS],
                     inline=True,
                     className="checklist",
                 ),
@@ -1125,7 +1141,7 @@ def update_status(_):
 )
 def update_page(monitors, quick, start_date, end_date, col, res_choice, _):
     names = monitor_names()
-    monitors = [m for m in MONITOR_IDS if m in (monitors or [])]
+    monitors = ids_from_keys(monitors)
 
     if not monitors:
         msg = html.P("Select at least one monitor.", className="muted")
@@ -1274,7 +1290,7 @@ def to_export_frame(series, names, resolution):
 )
 def download(_csv, _xlsx, monitors, quick, start_date, end_date, res_choice):
     names = monitor_names()
-    monitors = [m for m in MONITOR_IDS if m in (monitors or [])]
+    monitors = ids_from_keys(monitors)
     if not monitors:
         return no_update
     start, end = selected_range(quick, start_date, end_date)
